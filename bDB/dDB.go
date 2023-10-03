@@ -34,12 +34,12 @@ func (l *bDBLogger) Debugf(f string, v ...interface{}) {
 //        BadgerDB simple wrapper
 // ====================================
 
-type bDB struct {
+type BadgerDBWrapper struct {
 	db *badger.DB
 	opt badger.Options
 }
 
-func MakeDB(opt badger.Options) (*bDB, error) {
+func MakeDB(opt badger.Options) (*BadgerDBWrapper, error) {
 	var err error
 	var logFile *os.File
 	if logFile, err = os.OpenFile("LOG", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err != nil {
@@ -48,12 +48,12 @@ func MakeDB(opt badger.Options) (*bDB, error) {
 	}
 	var defaultLogger = &bDBLogger{Logger: log.New(logFile, "[BadgerDB]", log.LstdFlags)}
 	opt.Logger = defaultLogger
-	bdb := new(bDB)
+	bdb := new(BadgerDBWrapper)
 	bdb.opt = opt
 	return bdb, nil
 }
 
-func (d *bDB) Open() error {
+func (d *BadgerDBWrapper) Open() error {
 	var err error
 	if d.db, err = badger.Open(d.opt); err != nil {
 		return err
@@ -61,7 +61,7 @@ func (d *bDB) Open() error {
 	return nil
 }
 
-func (d *bDB) Put(key, value string, f ...func(*badger.Txn) error) error {
+func (d *BadgerDBWrapper) Put(key, value string, f ...func(*badger.Txn) error) error {
 	wb := d.db.NewWriteBatch()
 	defer wb.Cancel()
 	if err := wb.SetEntry(badger.NewEntry([]byte(key), []byte(value)).WithMeta(0)); err != nil{
@@ -73,7 +73,7 @@ func (d *bDB) Put(key, value string, f ...func(*badger.Txn) error) error {
 	return nil
 }
 
-func (d *bDB) Get(key string) (string, error) {
+func (d *BadgerDBWrapper) Get(key string) (string, error) {
 	var value string
 	err := d.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(key))
@@ -89,11 +89,11 @@ func (d *bDB) Get(key string) (string, error) {
 	return value, err
 }
 
-func (d *bDB) Close() error {
+func (d *BadgerDBWrapper) Close() error {
 	return d.db.Close()
 }
 
-func (d *bDB) DestroyDB() error{
+func (d *BadgerDBWrapper) DestroyDB() error{
 	return d.db.DropAll()
 }
 
