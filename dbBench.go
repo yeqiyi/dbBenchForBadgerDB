@@ -89,7 +89,7 @@ var FLAGS_db string = "/tmp/BadgerBench"
 var FLAGS_use_existing_db = false
 
 func PrintEnv() {
-	fmt.Fprintf(os.Stderr, "BadgerDB  \n")
+	fmt.Fprintf(os.Stderr, "BadgerDB  v4.2.0\n")
 	now := time.Now()
 	fmt.Fprintf(os.Stderr, "Date:        %s\n", now.String())
 	if runtime.GOOS == "linux" {
