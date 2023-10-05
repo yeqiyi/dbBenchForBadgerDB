@@ -81,6 +81,9 @@ var FLAGS_num_level0 = 0
 // Number of stalled tables at level0
 var FLAGS_num_level0_stall = 0
 
+// KV pairs to prefetch while iterating. 
+var FLAGS_read_prefetch_size int = -1
+
 // If true, do not destroy the existing database.  If you set this
 // flag and also specify a benchmark that wants a fresh database, that
 // benchmark will fail.
@@ -435,9 +438,10 @@ func (bm *Benchmark) DoWrite(thread *ThreadState, seq bool) {
 		thread.stats.AddMsg(msg)
 	}
 
-	bytes := 0
+	var bytes int64 = 0
 	rnd := rand.New(rand.NewSource(301))
 	wb := bm.db.NewWriteBatch()
+	value := RandomString(rnd, bm.valueSize)
 	defer wb.Cancel()
 	for i := 0; i < bm.num; i++ {
 		var k int
@@ -447,21 +451,39 @@ func (bm *Benchmark) DoWrite(thread *ThreadState, seq bool) {
 			k = thread.rd.Intn(FLAGS_num)
 		}
 		key := GenKey(k)
-		// if err := bm.db.Put(key, RandomString(rnd, bm.valueSize)); err != nil {
-		// 	fmt.Fprintf(os.Stderr, "put error: %s\n", err.Error())
-		// 	os.Exit(1)
-		// }
-		if err := wb.SetEntry(badger.NewEntry([]byte(key), []byte(RandomString(rnd, bm.valueSize))).WithMeta(0)); err != nil {
+		if err := wb.SetEntry(badger.NewEntry([]byte(key), []byte(value)).WithMeta(0)); err != nil {
 			fmt.Fprintf(os.Stderr, "put error: %s\n", err.Error())
 			os.Exit(1)
 		}
 
-		bytes += bm.valueSize + len(key)
+		bytes += int64(bm.valueSize) + int64(len(key))
 		thread.stats.FinishedSingleOp()
 	}
 	if err := wb.Flush(); err != nil {
 		fmt.Fprintf(os.Stderr, "put errror: %s\n", err.Error())
 		os.Exit(1)
+	}
+	thread.stats.AddBytes(int64(bytes))
+}
+
+func (bm *Benchmark) WriteSync(thread *ThreadState) {
+	if bm.num == FLAGS_num {
+		msg := fmt.Sprintf("(%d ops)", bm.num)
+		thread.stats.AddMsg(msg)
+	}
+
+	var bytes int64 = 0
+	rnd := rand.New(rand.NewSource(301))
+	value := RandomString(rnd, bm.valueSize)
+	for i := 0; i < bm.num; i++ {
+		k := thread.rd.Intn(FLAGS_num)
+		key := GenKey(k)
+		if err := bm.db.Put(key, value); err != nil {
+			fmt.Fprintf(os.Stderr, "put errror: %s\n", err.Error())
+			os.Exit(1)
+		}
+		bytes += int64(bm.valueSize) + int64(len(key))
+		thread.stats.FinishedSingleOp()
 	}
 	thread.stats.AddBytes(int64(bytes))
 }
@@ -476,20 +498,28 @@ func (bm *Benchmark) WriteRandom(thread *ThreadState) {
 
 func (bm *Benchmark) ReadSeq(thread *ThreadState) {
 	i := 0
-	bytes := 0
+	var bytes int64 = 0
 	f := func(txn *badger.Txn) error {
 		iterOpt := badger.DefaultIteratorOptions
+		if FLAGS_read_prefetch_size > 0 {
+			iterOpt.PrefetchValues = true
+			iterOpt.PrefetchSize = FLAGS_read_prefetch_size
+		} else {
+			iterOpt.PrefetchValues = false
+			iterOpt.PrefetchSize = 0
+		}
 		iter := txn.NewIterator(iterOpt)
 		defer iter.Close()
 		for iter.Rewind(); i < bm.reads && iter.Valid(); iter.Next() {
 			item := iter.Item()
 			key := item.Key()
-			bytes += len(key)
+			bytes += int64(len(key))
 			err := item.Value(func(v []byte) error {
-				bytes += len(v)
+				bytes += int64(len(v))
 				return nil
 			})
 			if err != nil {
+				fmt.Println(err)
 				return err
 			}
 			thread.stats.FinishedSingleOp()
@@ -509,6 +539,13 @@ func (bm *Benchmark) ReadReverse(thread *ThreadState) {
 	bytes := 0
 	f := func(txn *badger.Txn) error {
 		iterOpt := badger.DefaultIteratorOptions
+		if FLAGS_read_prefetch_size > 0 {
+			iterOpt.PrefetchValues = true
+			iterOpt.PrefetchSize = FLAGS_read_prefetch_size
+		} else {
+			iterOpt.PrefetchValues = false
+			iterOpt.PrefetchSize = 0
+		}
 		iterOpt.Reverse = true
 		iter := txn.NewIterator(iterOpt)
 		defer iter.Close()
@@ -581,7 +618,7 @@ func (bm *Benchmark) Run() {
 			freshDB = true
 			bm.num /= 1000
 			dbOpt.SyncWrites = true
-			method = (*Benchmark).WriteRandom
+			method = (*Benchmark).WriteSync
 		case "readseq":
 			method = (*Benchmark).ReadSeq
 		case "readreverse":
@@ -637,6 +674,7 @@ func main() {
 		flag.IntVar(&FLAGS_memtable_num, "mem_table_num", FLAGS_memtable_num, "Number of memtables")
 		flag.IntVar(&FLAGS_num_level0, "num_level0", FLAGS_num_level0, "Number of tables at level0")
 		flag.IntVar(&FLAGS_num_level0_stall, "num_level0_stall", FLAGS_num_level0_stall, "Number of stalled tables at level0")
+		flag.IntVar(&FLAGS_read_prefetch_size, "read_prefetch_size", FLAGS_read_prefetch_size, "KV pairs to prefetch while iterating.")
 		flag.StringVar(&FLAGS_db, "db", FLAGS_db, "database path")
 	}
 	flag.Parse()

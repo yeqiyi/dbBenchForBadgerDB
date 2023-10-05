@@ -96,11 +96,6 @@ func (d *BadgerDBWrapper) Put(key, value string, f ...func(*badger.Txn) error) e
 	if err := wb.Flush(); err != nil {
 		return err
 	}
-	// return d.db.Update(func(txn *badger.Txn) error{
-	// 	k := []byte(key)
-	// 	v := []byte(value)
-	// 	return txn.Set(k, v)
-	// })
 	return nil
 }
 
