@@ -374,15 +374,14 @@ func CreateDBOption() badger.Options {
 	opt.ValueLogMaxEntries = FLAGS_vlog_max_entries
 	opt.NumMemtables = FLAGS_memtable_num
 	opt.ValueThreshold = FLAGS_value_threshold
+	opt.NumLevelZeroTables = FLAGS_num_level0
+	opt.NumLevelZeroTablesStall = FLAGS_num_level0_stall
 	return opt
 }
 
 func (bm *Benchmark) Open(opt badger.Options) {
 	var err error
-	if bm.db, err = bDB.MakeDB(); err != nil {
-		fmt.Fprintf(os.Stderr, "err occurs when open db: %s\n", err.Error())
-		os.Exit(1)
-	}
+	bm.db = bDB.MakeDB()
 	if err = bm.db.Open(opt); err != nil {
 		fmt.Fprintf(os.Stderr, "err occurs when open db: %s\n", err.Error())
 		os.Exit(1)
@@ -535,6 +534,8 @@ func (bm *Benchmark) ReadRandom(thread *ThreadState) {
 		}
 		thread.stats.FinishedSingleOp()
 	}
+	msg := fmt.Sprintf("(%d of %d found)", found, bm.num)
+	thread.stats.AddMsg(msg)
 }
 
 // run benchmark

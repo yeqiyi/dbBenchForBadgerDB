@@ -38,25 +38,21 @@ func (l *bDBLogger) Debugf(f string, v ...interface{}) {
 
 type BadgerDBWrapper struct {
 	db     *badger.DB
-	logger *bDBLogger
 }
 
-func MakeDB() (*BadgerDBWrapper, error) {
-	var err error
-	var logFile *os.File
-	if logFile, err = os.OpenFile("LOG", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err != nil {
-		fmt.Fprintf(os.Stdout, "failed to create log file\n")
-		return nil, err
-	}
-	var defaultLogger = &bDBLogger{Logger: log.New(logFile, "[BadgerDB]", log.LstdFlags)}
-	bdb := new(BadgerDBWrapper)
-	bdb.logger = defaultLogger
-	return bdb, nil
+func MakeDB() (*BadgerDBWrapper) {
+	return new(BadgerDBWrapper)
 }
 
 func (d *BadgerDBWrapper) Open(opt badger.Options) error {
 	var err error
-	opt.Logger = d.logger
+	var logFile *os.File
+	if logFile, err = os.OpenFile(opt.Dir + "/LOG", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err != nil {
+		fmt.Fprintf(os.Stdout, "failed to create log file\n")
+		return err
+	}
+	var defaultLogger = &bDBLogger{Logger: log.New(logFile, "[BadgerDB]", log.LstdFlags)}
+	opt.Logger = defaultLogger
 	if d.db, err = badger.Open(opt); err != nil {
 		return err
 	}
@@ -64,15 +60,19 @@ func (d *BadgerDBWrapper) Open(opt badger.Options) error {
 }
 
 func (d *BadgerDBWrapper) Put(key, value string, f ...func(*badger.Txn) error) error {
-	wb := d.db.NewWriteBatch()
-	defer wb.Cancel()
-	if err := wb.SetEntry(badger.NewEntry([]byte(key), []byte(value)).WithMeta(0)); err != nil {
-		return err
-	}
-	if err := wb.Flush(); err != nil {
-		return err
-	}
-	return nil
+	// wb := d.db.NewWriteBatch()
+	// defer wb.Cancel()
+	// if err := wb.SetEntry(badger.NewEntry([]byte(key), []byte(value)).WithMeta(0)); err != nil {
+	// 	return err
+	// }
+	// if err := wb.Flush(); err != nil {
+	// 	return err
+	// }
+	return d.db.Update(func(txn *badger.Txn) error{
+		k := []byte(key)
+		v := []byte(value)
+		return txn.Set(k, v)
+	})
 }
 
 func (d *BadgerDBWrapper) DoView(f func(*badger.Txn) error) error {
