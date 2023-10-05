@@ -1,16 +1,18 @@
 package bDB
 
 import (
-	"log"
-	"os"
 	"fmt"
 	"github.com/dgraph-io/badger"
+	"log"
+	"os"
 )
 
 // ====================================
-//        BadgerDB Logger
+//
+//	BadgerDB Logger
+//
 // ====================================
-type bDBLogger struct{
+type bDBLogger struct {
 	*log.Logger
 }
 
@@ -35,27 +37,27 @@ func (l *bDBLogger) Debugf(f string, v ...interface{}) {
 // ====================================
 
 type BadgerDBWrapper struct {
-	db *badger.DB
-	opt badger.Options
+	db     *badger.DB
+	logger *bDBLogger
 }
 
-func MakeDB(opt badger.Options) (*BadgerDBWrapper, error) {
+func MakeDB() (*BadgerDBWrapper, error) {
 	var err error
 	var logFile *os.File
 	if logFile, err = os.OpenFile("LOG", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err != nil {
-		fmt.Fprintf(os.Stdout, "failed to create log file\n");
+		fmt.Fprintf(os.Stdout, "failed to create log file\n")
 		return nil, err
 	}
 	var defaultLogger = &bDBLogger{Logger: log.New(logFile, "[BadgerDB]", log.LstdFlags)}
-	opt.Logger = defaultLogger
 	bdb := new(BadgerDBWrapper)
-	bdb.opt = opt
+	bdb.logger = defaultLogger
 	return bdb, nil
 }
 
-func (d *BadgerDBWrapper) Open() error {
+func (d *BadgerDBWrapper) Open(opt badger.Options) error {
 	var err error
-	if d.db, err = badger.Open(d.opt); err != nil {
+	opt.Logger = d.logger
+	if d.db, err = badger.Open(opt); err != nil {
 		return err
 	}
 	return nil
@@ -64,13 +66,17 @@ func (d *BadgerDBWrapper) Open() error {
 func (d *BadgerDBWrapper) Put(key, value string, f ...func(*badger.Txn) error) error {
 	wb := d.db.NewWriteBatch()
 	defer wb.Cancel()
-	if err := wb.SetEntry(badger.NewEntry([]byte(key), []byte(value)).WithMeta(0)); err != nil{
+	if err := wb.SetEntry(badger.NewEntry([]byte(key), []byte(value)).WithMeta(0)); err != nil {
 		return err
 	}
-	if err := wb.Flush(); err != nil{
+	if err := wb.Flush(); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (d *BadgerDBWrapper) DoView(f func(*badger.Txn) error) error {
+	return d.db.View(f)
 }
 
 func (d *BadgerDBWrapper) Get(key string) (string, error) {
@@ -93,8 +99,6 @@ func (d *BadgerDBWrapper) Close() error {
 	return d.db.Close()
 }
 
-func (d *BadgerDBWrapper) DestroyDB() error{
+func (d *BadgerDBWrapper) DestroyDB() error {
 	return d.db.DropAll()
 }
-
-

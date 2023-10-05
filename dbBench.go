@@ -24,22 +24,12 @@ import (
 //	   overwrite     -- overwrite N values in random key order in async mode
 //	   fillsync      -- write N/100 values in random key order in sync mode
 //	   fill100K      -- write N/1000 100K values in random order in async mode
-//	   deleteseq     -- delete N keys in sequential order
-//	   deleterandom  -- delete N keys in random order
 //	   readseq       -- read N times sequentially
 //	   readreverse   -- read N times in reverse order
 //	   readrandom    -- read N times in random order
-//	   readmissing   -- read N missing keys in random order
 //	   readhot       -- read N times in random order from 1% section of DB
-//	   seekrandom    -- N random seeks
-//	   seekordered   -- N ordered seeks
-//	   open          -- cost of opening a DB
-//	   crc32c        -- repeated crc32c of 4K of data
 //	Meta operations:
 //	   compact     -- Compact the entire DB
-//	   stats       -- Print DB stats
-//	   sstables    -- Print sstable info
-//	   heapprofile -- Dump a heap profile (if supported by this port)
 var FLAGS_benchmarks []string = []string{
 	"fillseq",
 	"fillsync",
@@ -55,7 +45,7 @@ var FLAGS_benchmarks []string = []string{
 var default_opt = badger.DefaultOptions("")
 
 // Number of key/values to place in database
-var FLAGS_num int = 1000
+var FLAGS_num int = 1000000
 
 // Number of read operations to do. If negative, do FLAGS_num reads.
 var FLAGS_reads int = -1
@@ -84,6 +74,12 @@ var FLAGS_key_size int = 16
 
 // db name
 var FLAGS_db string = "/tmp/BadgerBench"
+
+// Number of tables at level0
+var FLAGS_num_level0 = 0
+
+// Number of stalled tables at level0
+var FLAGS_num_level0_stall = 0
 
 // If true, do not destroy the existing database.  If you set this
 // flag and also specify a benchmark that wants a fresh database, that
@@ -372,19 +368,22 @@ func ThreadBody(v interface{}) {
 	}
 }
 
-func (bm *Benchmark) Open() {
+func CreateDBOption() badger.Options {
 	opt := badger.DefaultOptions(FLAGS_db)
 	opt.MaxTableSize = FLAGS_write_buffer_size
 	opt.ValueLogMaxEntries = FLAGS_vlog_max_entries
 	opt.NumMemtables = FLAGS_memtable_num
 	opt.ValueThreshold = FLAGS_value_threshold
+	return opt
+}
 
+func (bm *Benchmark) Open(opt badger.Options) {
 	var err error
-	if bm.db, err = bDB.MakeDB(opt); err != nil {
+	if bm.db, err = bDB.MakeDB(); err != nil {
 		fmt.Fprintf(os.Stderr, "err occurs when open db: %s\n", err.Error())
 		os.Exit(1)
 	}
-	if err = bm.db.Open(); err != nil {
+	if err = bm.db.Open(opt); err != nil {
 		fmt.Fprintf(os.Stderr, "err occurs when open db: %s\n", err.Error())
 		os.Exit(1)
 	}
@@ -439,7 +438,7 @@ func (bm *Benchmark) DoWrite(thread *ThreadState, seq bool) {
 
 	bytes := 0
 	rnd := rand.New(rand.NewSource(301))
-	
+
 	for i := 0; i < bm.num; i++ {
 		var k int
 		if seq {
@@ -466,23 +465,97 @@ func (bm *Benchmark) WriteRandom(thread *ThreadState) {
 	bm.DoWrite(thread, false)
 }
 
+func (bm *Benchmark) ReadSeq(thread *ThreadState) {
+	i := 0
+	bytes := 0
+	f := func(txn *badger.Txn) error {
+		iterOpt := badger.DefaultIteratorOptions
+		iter := txn.NewIterator(iterOpt)
+		defer iter.Close()
+		for iter.Rewind(); i < bm.reads && iter.Valid(); iter.Next() {
+			item := iter.Item()
+			key := item.Key()
+			bytes += len(key)
+			err := item.Value(func(v []byte) error {
+				bytes += len(v)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			thread.stats.FinishedSingleOp()
+			i++
+		}
+		return nil
+	}
+	if err := bm.db.DoView(f); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to readseq: %s\n", err.Error())
+		os.Exit(1)
+	}
+	thread.stats.AddBytes(int64(bytes))
+}
+
+func (bm *Benchmark) ReadReverse(thread *ThreadState) {
+	i := 0
+	bytes := 0
+	f := func(txn *badger.Txn) error {
+		iterOpt := badger.DefaultIteratorOptions
+		iterOpt.Reverse = true
+		iter := txn.NewIterator(iterOpt)
+		defer iter.Close()
+		for iter.Rewind(); i < bm.reads && iter.Valid(); iter.Next() {
+			item := iter.Item()
+			key := item.Key()
+			bytes += len(key)
+			err := item.Value(func(v []byte) error {
+				bytes += len(v)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			thread.stats.FinishedSingleOp()
+			i++
+		}
+		return nil
+	}
+	if err := bm.db.DoView(f); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to readreverse: %s\n", err.Error())
+		os.Exit(1)
+	}
+	thread.stats.AddBytes(int64(bytes))
+}
+
+func (bm *Benchmark) ReadRandom(thread *ThreadState) {
+	found := 0
+	for i:= 0; i< bm.reads; i++{
+		k := thread.rd.Intn(FLAGS_num)
+		if _, err := bm.db.Get(GenKey(k)); err==nil{
+			found++
+		}
+		thread.stats.FinishedSingleOp()
+	}
+}
+
+// run benchmark
 func (bm *Benchmark) Run() {
 	bm.PrintHeader()
-	bm.Open()
-	bm.num = FLAGS_num
-	if FLAGS_reads < 0 {
-		bm.reads = FLAGS_num
-	} else {
-		bm.reads = FLAGS_reads
-	}
-	bm.valueSize = FLAGS_value_size
-	bm.entriesPerBatch = 1
-
-	var method func(*Benchmark, *ThreadState)
-	freshDB := false
-	numThreads := FLAGS_threads
+	dbOpt := CreateDBOption()
+	bm.Open(dbOpt)
 
 	for _, benchmark := range FLAGS_benchmarks {
+		bm.num = FLAGS_num
+		if FLAGS_reads < 0 {
+			bm.reads = FLAGS_num
+		} else {
+			bm.reads = FLAGS_reads
+		}
+		bm.valueSize = FLAGS_value_size
+		bm.entriesPerBatch = 1
+		var method func(*Benchmark, *ThreadState)
+		freshDB := false
+		numThreads := FLAGS_threads
+		dbOpt = CreateDBOption()
 		switch benchmark {
 		case "fillseq":
 			freshDB = true
@@ -496,24 +569,33 @@ func (bm *Benchmark) Run() {
 		case "fillsync":
 			freshDB = true
 			bm.num /= 1000
+			dbOpt.SyncWrites = true
+			method = (*Benchmark).WriteRandom
 		case "readseq":
+			method = (*Benchmark).ReadSeq
 		case "readreverse":
+			method = (*Benchmark).ReadReverse
 		case "readrandom":
+			method = (*Benchmark).ReadRandom
 		case "fill100k":
 			freshDB = true
-
+			bm.num /= 1000
+			bm.valueSize = 100 * 1000
+			method = (*Benchmark).WriteRandom
 		default:
 			if benchmark != "" {
 				fmt.Fprintf(os.Stderr, "unknown benchmark '%s'\n", benchmark)
 			}
 		}
 		if freshDB {
-			if err := bm.db.DestroyDB(); err!= nil{
+			if err := bm.db.DestroyDB(); err != nil {
 				fmt.Fprintf(os.Stderr, "failed to drop db: %s\n", err.Error())
 				os.Exit(1)
 			}
+			bm.db.Close()
+			bm.Open(dbOpt)
 		}
-	
+
 		if method != nil {
 			bm.RunBenchmark(numThreads, benchmark, method)
 		}
@@ -525,6 +607,8 @@ func Init() {
 	FLAGS_vlog_max_entries = default_opt.ValueLogMaxEntries
 	FLAGS_memtable_num = default_opt.NumMemtables
 	FLAGS_value_threshold = default_opt.ValueThreshold
+	FLAGS_num_level0 = default_opt.NumLevelZeroTables
+	FLAGS_num_level0_stall = default_opt.NumLevelZeroTablesStall
 }
 
 func main() {
@@ -537,9 +621,11 @@ func main() {
 		flag.IntVar(&FLAGS_num, "num", FLAGS_num, "Number of key/values to place in database")
 		flag.IntVar(&FLAGS_value_size, "value_size", FLAGS_value_size, "Size of each value")
 		flag.IntVar(&FLAGS_value_threshold, "value_threshold", FLAGS_value_threshold, "value threshold to trigger key/value separate")
-		flag.Int64Var(&FLAGS_write_buffer_size, "write_buffer_size", FLAGS_write_buffer_size, "Number of bytes to buffer in memtable before compacting")
+		flag.Int64Var(&FLAGS_write_buffer_size, "write_buffer_size", FLAGS_write_buffer_size, "Size of table")
 		flag.IntVar(&FLAGS_threads, "threads", FLAGS_threads, "Number of concurrent threads to run")
-		flag.IntVar(&FLAGS_memtable_num, "mem_table_num", FLAGS_memtable_num, "Number of memtable")
+		flag.IntVar(&FLAGS_memtable_num, "mem_table_num", FLAGS_memtable_num, "Number of memtables")
+		flag.IntVar(&FLAGS_num_level0, "num_level0", FLAGS_num_level0, "Number of tables at level0")
+		flag.IntVar(&FLAGS_num_level0_stall, "num_level0_stall", FLAGS_num_level0_stall, "Number of stalled tables at level0")
 		flag.StringVar(&FLAGS_db, "db", FLAGS_db, "database path")
 	}
 	flag.Parse()
