@@ -437,7 +437,8 @@ func (bm *Benchmark) DoWrite(thread *ThreadState, seq bool) {
 
 	bytes := 0
 	rnd := rand.New(rand.NewSource(301))
-
+	wb := bm.db.NewWriteBatch()
+	defer wb.Cancel()
 	for i := 0; i < bm.num; i++ {
 		var k int
 		if seq {
@@ -446,12 +447,21 @@ func (bm *Benchmark) DoWrite(thread *ThreadState, seq bool) {
 			k = thread.rd.Intn(FLAGS_num)
 		}
 		key := GenKey(k)
-		if err := bm.db.Put(key, RandomString(rnd, bm.valueSize)); err != nil {
+		// if err := bm.db.Put(key, RandomString(rnd, bm.valueSize)); err != nil {
+		// 	fmt.Fprintf(os.Stderr, "put error: %s\n", err.Error())
+		// 	os.Exit(1)
+		// }
+		if err := wb.SetEntry(badger.NewEntry([]byte(key), []byte(RandomString(rnd, bm.valueSize))).WithMeta(0)); err != nil {
 			fmt.Fprintf(os.Stderr, "put error: %s\n", err.Error())
 			os.Exit(1)
 		}
+
 		bytes += bm.valueSize + len(key)
 		thread.stats.FinishedSingleOp()
+	}
+	if err := wb.Flush(); err != nil {
+		fmt.Fprintf(os.Stderr, "put errror: %s\n", err.Error())
+		os.Exit(1)
 	}
 	thread.stats.AddBytes(int64(bytes))
 }
@@ -527,9 +537,9 @@ func (bm *Benchmark) ReadReverse(thread *ThreadState) {
 
 func (bm *Benchmark) ReadRandom(thread *ThreadState) {
 	found := 0
-	for i:= 0; i< bm.reads; i++{
+	for i := 0; i < bm.reads; i++ {
 		k := thread.rd.Intn(FLAGS_num)
-		if _, err := bm.db.Get(GenKey(k)); err==nil{
+		if _, err := bm.db.Get(GenKey(k)); err == nil {
 			found++
 		}
 		thread.stats.FinishedSingleOp()

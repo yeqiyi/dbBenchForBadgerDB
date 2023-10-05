@@ -88,19 +88,24 @@ func (d *BadgerDBWrapper) Open(opt badger.Options) error {
 }
 
 func (d *BadgerDBWrapper) Put(key, value string, f ...func(*badger.Txn) error) error {
-	// wb := d.db.NewWriteBatch()
-	// defer wb.Cancel()
-	// if err := wb.SetEntry(badger.NewEntry([]byte(key), []byte(value)).WithMeta(0)); err != nil {
-	// 	return err
-	// }
-	// if err := wb.Flush(); err != nil {
-	// 	return err
-	// }
-	return d.db.Update(func(txn *badger.Txn) error{
-		k := []byte(key)
-		v := []byte(value)
-		return txn.Set(k, v)
-	})
+	wb := d.db.NewWriteBatch()
+	defer wb.Cancel()
+	if err := wb.SetEntry(badger.NewEntry([]byte(key), []byte(value)).WithMeta(0)); err != nil {
+		return err
+	}
+	if err := wb.Flush(); err != nil {
+		return err
+	}
+	// return d.db.Update(func(txn *badger.Txn) error{
+	// 	k := []byte(key)
+	// 	v := []byte(value)
+	// 	return txn.Set(k, v)
+	// })
+	return nil
+}
+
+func (d *BadgerDBWrapper) NewWriteBatch() *badger.WriteBatch{
+	return d.db.NewWriteBatch()
 }
 
 func (d *BadgerDBWrapper) DoView(f func(*badger.Txn) error) error {
