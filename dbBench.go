@@ -332,7 +332,7 @@ func MakeBenchmark() *Benchmark {
 		bm.totalThreadsCount = 0
 
 		if !FLAGS_use_existing_db {
-			os.Remove(FLAGS_db)
+			os.RemoveAll(FLAGS_db)
 		}
 	}
 	return bm

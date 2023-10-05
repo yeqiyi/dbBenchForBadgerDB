@@ -12,25 +12,44 @@ import (
 //	BadgerDB Logger
 //
 // ====================================
+
+// log level
+const  (
+	DEBUG int = iota
+	INFO 
+	WARNING
+	ERROR
+)
+
 type bDBLogger struct {
 	*log.Logger
+	level int
 }
 
 func (l *bDBLogger) Errorf(f string, v ...interface{}) {
-	l.Printf("ERROR: "+f, v...)
+	if l.level <= ERROR {
+		l.Printf("ERROR: "+f, v...)
+	}
 }
 
 func (l *bDBLogger) Warningf(f string, v ...interface{}) {
-	l.Printf("WARNING: "+f, v...)
+	if l.level <= WARNING {
+		l.Printf("WARNING: "+f, v...)
+	}
 }
 
 func (l *bDBLogger) Infof(f string, v ...interface{}) {
-	l.Printf("INFO: "+f, v...)
+	if l.level <= INFO {
+		l.Printf("INFO: "+f, v...)
+	}
 }
 
 func (l *bDBLogger) Debugf(f string, v ...interface{}) {
-	l.Printf("DEBUG: "+f, v...)
+	if l.level <= DEBUG {
+		l.Printf("DEBUG: "+f, v...)
+	}
 }
+
 
 // ====================================
 //        BadgerDB simple wrapper
@@ -47,11 +66,20 @@ func MakeDB() (*BadgerDBWrapper) {
 func (d *BadgerDBWrapper) Open(opt badger.Options) error {
 	var err error
 	var logFile *os.File
-	if logFile, err = os.OpenFile(opt.Dir + "/LOG", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err != nil {
-		fmt.Fprintf(os.Stdout, "failed to create log file\n")
+	if _,err := os.Stat(opt.Dir); os.IsNotExist(err) {
+		// if db dir not exist, then create
+		if err = os.Mkdir(opt.Dir, 0777); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to create db dir\n")
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
-	var defaultLogger = &bDBLogger{Logger: log.New(logFile, "[BadgerDB]", log.LstdFlags)}
+	if logFile, err = os.OpenFile(opt.Dir + "/LOG", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create log file\n")
+		return err
+	}
+	var defaultLogger = &bDBLogger{Logger: log.New(logFile, "[BadgerDB]", log.LstdFlags), level: WARNING}
 	opt.Logger = defaultLogger
 	if d.db, err = badger.Open(opt); err != nil {
 		return err
