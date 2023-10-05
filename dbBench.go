@@ -589,11 +589,11 @@ func (bm *Benchmark) Run() {
 			}
 		}
 		if freshDB {
-			if err := bm.db.DestroyDB(); err != nil {
+			bm.db.Close()
+			if err := os.RemoveAll(FLAGS_db); err != nil {
 				fmt.Fprintf(os.Stderr, "failed to drop db: %s\n", err.Error())
 				os.Exit(1)
 			}
-			bm.db.Close()
 			bm.Open(dbOpt)
 		}
 
