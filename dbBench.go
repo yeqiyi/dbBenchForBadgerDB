@@ -42,7 +42,18 @@ var FLAGS_benchmarks []string = []string{
 	"fill100k",
 }
 
+
+func leveldbDefaultOption(opt *badger.Options){
+	opt.SyncWrites = false
+	opt.NumLevelZeroTables = 4
+	opt.MaxLevels = 7
+	opt.MaxTableSize = 4 << 20
+	opt.LevelOneSize = 10 * 1048576.0
+}
+
 var default_opt = badger.DefaultOptions("")
+
+var FLAGS_leveldb_opt = true
 
 // Number of key/values to place in database
 var FLAGS_num int = 1000000
@@ -379,6 +390,9 @@ func CreateDBOption() badger.Options {
 	opt.ValueThreshold = FLAGS_value_threshold
 	opt.NumLevelZeroTables = FLAGS_num_level0
 	opt.NumLevelZeroTablesStall = FLAGS_num_level0_stall
+	if FLAGS_leveldb_opt {
+		leveldbDefaultOption(&opt)
+	}
 	return opt
 }
 
@@ -485,7 +499,7 @@ func (bm *Benchmark) WriteSync(thread *ThreadState) {
 		bytes += int64(bm.valueSize) + int64(len(key))
 		thread.stats.FinishedSingleOp()
 	}
-	thread.stats.AddBytes(int64(bytes))
+	thread.stats.AddBytes(bytes)
 }
 
 func (bm *Benchmark) WriteSeq(thread *ThreadState) {
@@ -519,7 +533,6 @@ func (bm *Benchmark) ReadSeq(thread *ThreadState) {
 				return nil
 			})
 			if err != nil {
-				fmt.Println(err)
 				return err
 			}
 			thread.stats.FinishedSingleOp()
@@ -531,7 +544,7 @@ func (bm *Benchmark) ReadSeq(thread *ThreadState) {
 		fmt.Fprintf(os.Stderr, "failed to readseq: %s\n", err.Error())
 		os.Exit(1)
 	}
-	thread.stats.AddBytes(int64(bytes))
+	thread.stats.AddBytes(bytes)
 }
 
 func (bm *Benchmark) ReadReverse(thread *ThreadState) {
@@ -665,7 +678,8 @@ func main() {
 		var benchmarks string
 		flag.StringVar(&benchmarks, "benchmarks", strings.Join(FLAGS_benchmarks, `,`), "benchmarks")
 		FLAGS_benchmarks = strings.Split(benchmarks, ",")
-
+		
+		flag.BoolVar(&FLAGS_leveldb_opt, "leveldb", FLAGS_leveldb_opt, "use leveldb default option")
 		flag.IntVar(&FLAGS_num, "num", FLAGS_num, "Number of key/values to place in database")
 		flag.IntVar(&FLAGS_value_size, "value_size", FLAGS_value_size, "Size of each value")
 		flag.IntVar(&FLAGS_value_threshold, "value_threshold", FLAGS_value_threshold, "value threshold to trigger key/value separate")
