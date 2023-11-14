@@ -123,6 +123,10 @@ func (d *BadgerDBWrapper) Get(key string) (string, error) {
 	return value, err
 }
 
+func (d *BadgerDBWrapper) VlogGC(threshold float64) error{
+	return d.db.RunValueLogGC(threshold)
+}
+
 func (d *BadgerDBWrapper) Close() error {
 	return d.db.Close()
 }

@@ -30,22 +30,30 @@ import (
 //	   readhot       -- read N times in random order from 1% section of DB
 //	Meta operations:
 //	   compact     -- Compact the entire DB
+//
+//	var FLAGS_benchmarks []string = []string{
+//		"fillseq",
+//		"fillsync",
+//		"fillrandom",
+//		"overwrite",
+//		"vloggc",
+//		// "readrandom",
+//		// "readrandom",
+//		// "readseq",
+//		// "readreverse",
+//		// "fill100k",
+//	}
 var FLAGS_benchmarks []string = []string{
-	"fillseq",
-	"fillsync",
 	"fillrandom",
+	"vloggc",
 	"overwrite",
-	"readrandom",
-	"readrandom",
-	"readseq",
-	"readreverse",
-	"fill100k",
+	"vloggc",
 }
 
-
-func leveldbDefaultOption(opt *badger.Options){
+func leveldbDefaultOption(opt *badger.Options) {
 	opt.SyncWrites = false
 	opt.NumLevelZeroTables = 4
+	opt.NumMemtables = 1
 	opt.MaxLevels = 7
 	opt.MaxTableSize = 4 << 20
 	opt.LevelOneSize = 10 * 1048576.0
@@ -92,7 +100,7 @@ var FLAGS_num_level0 = 0
 // Number of stalled tables at level0
 var FLAGS_num_level0_stall = 0
 
-// KV pairs to prefetch while iterating. 
+// KV pairs to prefetch while iterating.
 var FLAGS_read_prefetch_size int = -1
 
 // If true, do not destroy the existing database.  If you set this
@@ -510,6 +518,11 @@ func (bm *Benchmark) WriteRandom(thread *ThreadState) {
 	bm.DoWrite(thread, false)
 }
 
+func (bm *Benchmark) VlogGC(thread *ThreadState) {
+	var err error
+	for err = nil; err == nil; err = bm.db.VlogGC(0.00001) {}
+}
+
 func (bm *Benchmark) ReadSeq(thread *ThreadState) {
 	i := 0
 	var bytes int64 = 0
@@ -616,6 +629,7 @@ func (bm *Benchmark) Run() {
 		var method func(*Benchmark, *ThreadState)
 		freshDB := false
 		numThreads := FLAGS_threads
+		cleandb := true
 		dbOpt = CreateDBOption()
 		switch benchmark {
 		case "fillseq":
@@ -627,6 +641,10 @@ func (bm *Benchmark) Run() {
 		case "overwrite":
 			freshDB = false
 			method = (*Benchmark).WriteRandom
+		case "vloggc":
+			freshDB = true
+			cleandb = false
+			method = (*Benchmark).VlogGC
 		case "fillsync":
 			freshDB = true
 			bm.num /= 1000
@@ -650,9 +668,11 @@ func (bm *Benchmark) Run() {
 		}
 		if freshDB {
 			bm.db.Close()
-			if err := os.RemoveAll(FLAGS_db); err != nil {
-				fmt.Fprintf(os.Stderr, "failed to drop db: %s\n", err.Error())
-				os.Exit(1)
+			if cleandb {
+				// if err := os.RemoveAll(FLAGS_db); err != nil {
+				// 	fmt.Fprintf(os.Stderr, "failed to drop db: %s\n", err.Error())
+				// 	os.Exit(1)
+				// }
 			}
 			bm.Open(dbOpt)
 		}
@@ -678,7 +698,7 @@ func main() {
 		var benchmarks string
 		flag.StringVar(&benchmarks, "benchmarks", strings.Join(FLAGS_benchmarks, `,`), "benchmarks")
 		FLAGS_benchmarks = strings.Split(benchmarks, ",")
-		
+
 		flag.BoolVar(&FLAGS_leveldb_opt, "leveldb", FLAGS_leveldb_opt, "use leveldb default option")
 		flag.IntVar(&FLAGS_num, "num", FLAGS_num, "Number of key/values to place in database")
 		flag.IntVar(&FLAGS_value_size, "value_size", FLAGS_value_size, "Size of each value")
