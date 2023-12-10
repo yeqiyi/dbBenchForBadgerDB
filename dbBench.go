@@ -30,33 +30,34 @@ import (
 //	   readhot       -- read N times in random order from 1% section of DB
 //	Meta operations:
 //	   compact     -- Compact the entire DB
-//
-//	var FLAGS_benchmarks []string = []string{
-//		"fillseq",
-//		"fillsync",
-//		"fillrandom",
-//		"overwrite",
-//		"vloggc",
-//		// "readrandom",
-//		// "readrandom",
-//		// "readseq",
-//		// "readreverse",
-//		// "fill100k",
-//	}
 var FLAGS_benchmarks []string = []string{
 	"fillrandom",
-	"vloggc",
+	"fillsync",
+	"fillrandom",
 	"overwrite",
-	"vloggc",
+	//"vloggc",
+	"readrandom",
+	"readrandom",
+	"readseq",
+	"readreverse",
+	"fill100k",
 }
+
+// var FLAGS_benchmarks []string = []string{
+// 	"fillrandom",
+// 	"vloggc",
+// 	"overwrite",
+// 	"vloggc",
+// }
 
 func leveldbDefaultOption(opt *badger.Options) {
 	opt.SyncWrites = false
 	opt.NumLevelZeroTables = 4
-	opt.NumMemtables = 1
+	opt.NumMemtables = 3
 	opt.MaxLevels = 7
 	opt.MaxTableSize = 4 << 20
 	opt.LevelOneSize = 10 * 1048576.0
+	opt.NumCompactors = 3
 }
 
 var default_opt = badger.DefaultOptions("")
@@ -107,6 +108,8 @@ var FLAGS_read_prefetch_size int = -1
 // flag and also specify a benchmark that wants a fresh database, that
 // benchmark will fail.
 var FLAGS_use_existing_db = false
+
+var FLAGS_histogram = false
 
 func PrintEnv() {
 	fmt.Fprintf(os.Stderr, "BadgerDB     v4.2.0\n")
@@ -165,11 +168,13 @@ type Stats struct {
 	nextReport   int
 	bytes        int64
 	lastOPFinish float64
+	hist         Histrogram
 	msg          string
 }
 
 func (s *Stats) Start() {
 	s.nextReport = 100
+	s.hist.Clear()
 	s.done = 0
 	s.bytes = 0
 	s.seconds = 0
@@ -184,6 +189,7 @@ func (s *Stats) Merge(other *Stats) {
 	s.done += other.done
 	s.bytes += other.bytes
 	s.seconds += other.seconds
+	s.hist.Merge(&other.hist)
 	if other.start < s.start {
 		s.start = other.start
 	}
@@ -224,6 +230,12 @@ func (s *Stats) AddBytes(n int64) {
 }
 
 func (s *Stats) FinishedSingleOp() {
+	if FLAGS_histogram {
+		now := float64(time.Now().UnixMicro())
+		dura := now - s.lastOPFinish
+		s.hist.Add(dura)
+		s.lastOPFinish = now
+	}
 	s.done++
 	if s.done >= s.nextReport {
 		if s.nextReport < 1000 {
@@ -266,6 +278,10 @@ func (s *Stats) Report(name string) {
 			}
 			return ""
 		}(), extra)
+	if FLAGS_histogram {
+		fmt.Fprintf(os.Stdout, "Microseconds per op:\n%s\n",
+			s.hist.ToString())
+	}
 	FFlush(os.Stdout)
 }
 
@@ -520,7 +536,8 @@ func (bm *Benchmark) WriteRandom(thread *ThreadState) {
 
 func (bm *Benchmark) VlogGC(thread *ThreadState) {
 	var err error
-	for err = nil; err == nil; err = bm.db.VlogGC(0.00001) {}
+	for err = nil; err == nil; err = bm.db.VlogGC(0.00001) {
+	}
 }
 
 func (bm *Benchmark) ReadSeq(thread *ThreadState) {
@@ -532,7 +549,7 @@ func (bm *Benchmark) ReadSeq(thread *ThreadState) {
 			iterOpt.PrefetchValues = true
 			iterOpt.PrefetchSize = FLAGS_read_prefetch_size
 		} else {
-			iterOpt.PrefetchValues = false
+			iterOpt.PrefetchValues = true
 			iterOpt.PrefetchSize = 0
 		}
 		iter := txn.NewIterator(iterOpt)
@@ -710,6 +727,7 @@ func main() {
 		flag.IntVar(&FLAGS_num_level0_stall, "num_level0_stall", FLAGS_num_level0_stall, "Number of stalled tables at level0")
 		flag.IntVar(&FLAGS_read_prefetch_size, "read_prefetch_size", FLAGS_read_prefetch_size, "KV pairs to prefetch while iterating.")
 		flag.StringVar(&FLAGS_db, "db", FLAGS_db, "database path")
+		flag.BoolVar(&FLAGS_histogram, "histogram", FLAGS_histogram, "whether output histogram")
 	}
 	flag.Parse()
 	bm := MakeBenchmark()
