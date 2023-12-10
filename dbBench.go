@@ -711,25 +711,23 @@ func Init() {
 
 func main() {
 	Init()
-	{
-		var benchmarks string
-		flag.StringVar(&benchmarks, "benchmarks", strings.Join(FLAGS_benchmarks, `,`), "benchmarks")
-		FLAGS_benchmarks = strings.Split(benchmarks, ",")
-
-		flag.BoolVar(&FLAGS_leveldb_opt, "leveldb", FLAGS_leveldb_opt, "use leveldb default option")
-		flag.IntVar(&FLAGS_num, "num", FLAGS_num, "Number of key/values to place in database")
-		flag.IntVar(&FLAGS_value_size, "value_size", FLAGS_value_size, "Size of each value")
-		flag.IntVar(&FLAGS_value_threshold, "value_threshold", FLAGS_value_threshold, "value threshold to trigger key/value separate")
-		flag.Int64Var(&FLAGS_write_buffer_size, "write_buffer_size", FLAGS_write_buffer_size, "Size of table")
-		flag.IntVar(&FLAGS_threads, "threads", FLAGS_threads, "Number of concurrent threads to run")
-		flag.IntVar(&FLAGS_memtable_num, "mem_table_num", FLAGS_memtable_num, "Number of memtables")
-		flag.IntVar(&FLAGS_num_level0, "num_level0", FLAGS_num_level0, "Number of tables at level0")
-		flag.IntVar(&FLAGS_num_level0_stall, "num_level0_stall", FLAGS_num_level0_stall, "Number of stalled tables at level0")
-		flag.IntVar(&FLAGS_read_prefetch_size, "read_prefetch_size", FLAGS_read_prefetch_size, "KV pairs to prefetch while iterating.")
-		flag.StringVar(&FLAGS_db, "db", FLAGS_db, "database path")
-		flag.BoolVar(&FLAGS_histogram, "histogram", FLAGS_histogram, "whether output histogram")
-	}
+	var benchmarks string
+	flag.StringVar(&benchmarks, "benchmarks", strings.Join(FLAGS_benchmarks, `,`), "benchmarks")
+	flag.BoolVar(&FLAGS_leveldb_opt, "leveldb", FLAGS_leveldb_opt, "use leveldb default option")
+	flag.IntVar(&FLAGS_num, "num", FLAGS_num, "Number of key/values to place in database")
+	flag.IntVar(&FLAGS_value_size, "value_size", FLAGS_value_size, "Size of each value")
+	flag.IntVar(&FLAGS_value_threshold, "value_threshold", FLAGS_value_threshold, "value threshold to trigger key/value separate")
+	flag.Int64Var(&FLAGS_write_buffer_size, "write_buffer_size", FLAGS_write_buffer_size, "Size of table")
+	flag.IntVar(&FLAGS_threads, "threads", FLAGS_threads, "Number of concurrent threads to run")
+	flag.IntVar(&FLAGS_memtable_num, "mem_table_num", FLAGS_memtable_num, "Number of memtables")
+	flag.IntVar(&FLAGS_num_level0, "num_level0", FLAGS_num_level0, "Number of tables at level0")
+	flag.IntVar(&FLAGS_num_level0_stall, "num_level0_stall", FLAGS_num_level0_stall, "Number of stalled tables at level0")
+	flag.IntVar(&FLAGS_read_prefetch_size, "read_prefetch_size", FLAGS_read_prefetch_size, "KV pairs to prefetch while iterating.")
+	flag.StringVar(&FLAGS_db, "db", FLAGS_db, "database path")
+	flag.BoolVar(&FLAGS_histogram, "histogram", FLAGS_histogram, "whether output histogram")
+	
 	flag.Parse()
+	FLAGS_benchmarks = strings.Split(benchmarks, ",")
 	bm := MakeBenchmark()
 	bm.Run()
 }
